@@ -19,6 +19,20 @@ is_root(node::Node) = node.parent == nothing
 
 fully_expanded(node::Node, sim) = length(node.children) == length(actions_from(node.s, sim))
 
+is_leaf(node::Node) = isempty(node.children)
+
+function num_leaves(node::Node)
+    if is_leaf(node)
+        return 1
+    else
+        leaves = 0
+        for c in values(node.children)
+            leaves += num_leaves(c)
+        end
+        return leaves
+    end
+end
+
 function add_child(parent, child)
     a = child.a
     @assert !haskey(parent.children, a)
@@ -36,7 +50,7 @@ end
 
 function best_uct(node::Node)
     child_list = collect(values(node.children))
-    c = argmax([child.Q + sqrt(200000) * sqrt(log(node.n) / child.n) for child in child_list])
+    c = argmax([child.Q + sqrt(20000000) * sqrt(log(node.n) / child.n) for child in child_list])
     return child_list[c]
 end
 
@@ -47,7 +61,6 @@ function traverse(node, sim)
         node = best_uct(node)
     end
     n = pick_unvisited(node, sim)
-    println("Leaf node: ", n.s)
     return n
 end
 
@@ -95,7 +108,7 @@ function mcts(root, sim, max_sims)
         leaf = traverse(root, sim)
         ret, _, _ = rollout(leaf, sim, 1)
         sims += 1
-        backpropagate(leaf, simulation_result, sim)
+        backpropagate(leaf, ret, sim)
     end
 end
 
@@ -107,12 +120,14 @@ function failure_prob(node, sim, sims_per_rollout)
         Nc = length(node.children)
         E_fail = 0
         var_fail = 0
-        for c in node.children
+        for c in values(node.children)
+            w = length(actions_from(node.s, sim))*transition_prob(node.s, c.s, sim)
             E_fail_c, var_fail_c = failure_prob(c, sim, sims_per_rollout)
-            E_fail += E_fail_c / N_c
-            var_fail += var_fail_c / N_c^2
+            E_fail += w*E_fail_c / Nc
+            var_fail += w^2*var_fail_c / Nc^2
         end
         return E_fail, var_fail
     end
 end
+
 

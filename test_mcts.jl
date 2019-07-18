@@ -53,6 +53,7 @@ end
 first_a
 @test length(root.children) ==  length(actions_from(root.s, sim))
 @test fully_expanded(root, sim)
+@test num_leaves(root) == 3
 
 # check traverse and uct
 new_node = traverse(root, sim)

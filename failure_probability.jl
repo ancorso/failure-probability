@@ -13,7 +13,7 @@ r[state((2,1), w)] = -1
 terminals = findall(r.!= 0)
 
 # Define a transition function
-P = gen_P(w, h, terminals, [0.001, 0.001, 0.001, 0.001, 0])
+P = gen_P(w, h, terminals, [0.1, 0.1, 0.1, 0.1, 0])
 
 # Put it together in a gridworld
 g = GridWorld(w,h,r,P,0.8)
@@ -32,7 +32,7 @@ V = policy_evaluation(g,π,tol=1e-15)
 display_gridworld(g, string.(round.(V, digits=2)), title = "Prob of Failure under π")
 
 xb, xbprv, M = 0, 0, 0
-N = 100000
+N = 1000
 meanN, varN, totalReturn = Float64[], Float64[], Float64[]
 for n=1:N
     x = rollout(g, 1, π)
