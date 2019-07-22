@@ -5,7 +5,7 @@ include("mcts.jl")
 include("value_iteration.jl")
 include("adversarial_simulator.jl")
 
-w,h = 4,4
+w,h = 6,6
 # Define a reward function
 r = zeros(w*h)
 r[state((3,3), w)] = 1
@@ -36,7 +36,7 @@ g.r[state((3,3), w)] = 1
 g.r[state((2,1), w)] = -1
 sim = AdversarialSimulator(g, 1, π0)
 
-tree_size = [2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+tree_size = unique(Int.(floor.(exp10.(range(1, 4, length=25)))))
 total_rollouts = []
 mcts_mean = []
 mcts_std = []
@@ -72,11 +72,14 @@ for ts in tree_size
     push!(mc_mean, mean(mc))
     push!(mc_std, sqrt(var(mc)/N))
 end
-num_leaves(root)
 
-plot(total_rollouts, mc_mean, ribbon=2.78*mc_std, label="Monte Carlo")
-plot!(total_rollouts, is_mean, ribbon=2.78*is_std, label="Importance Sampling")
-plot!(total_rollouts, mcts_mean, ribbon=2.78*mcts_std, label="MCTS")
+plot(total_rollouts, mc_mean, label="Monte Carlo", xscale=:log)
+xlabel!("Number of Samples")
+ylabel!("Probability")
+title!("Failure Probability Estimates")
+# plot!(total_rollouts, is_mean, ribbon=2.78*is_std, label="Importance Sampling")
+
+plot!(total_rollouts, mcts_mean, ribbon=(min.(mcts_mean,2.78*mcts_std), 2.78*mcts_std), label="MCTS")
 plot!(total_rollouts, fill(V[s0],length(total_rollouts)), label="Exact")
 
 savefig("results.pdf")

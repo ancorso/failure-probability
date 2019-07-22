@@ -50,7 +50,12 @@ end
 
 function best_uct(node::Node)
     child_list = collect(values(node.children))
-    c = argmax([child.Q + sqrt(20000000) * sqrt(log(node.n) / child.n) for child in child_list])
+
+    Qs = [child.Q for child in child_list]
+    probs = Qs ./ sum(Qs)
+    c = findfirst(rand(Multinomial(1, probs)).==true)
+
+    # c = argmax([child.Q + sqrt(2000) * sqrt(log(node.n) / child.n) for child in child_list])
     return child_list[c]
 end
 
