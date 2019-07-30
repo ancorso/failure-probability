@@ -7,22 +7,23 @@ include("common.jl")
 ec = 1e3 # Exploration constant for MCTS
 samples_per_leaf = 10 # Samples per leaf for computing failure prob MCTs
 trials_per_size = 10
-s0 = GridWorldState(6,6,1)
+s0 = GridWorldState(4,4,1)
 
-mdp, V, g_fail = create_sim(AdversarialGridWorld, w=10, h=10, T=30, s0=s0, Nwins = 35)
+mdp, V, g_fail = create_sim(SeedGridWorld, w=5, h=5, T=10, s0=s0, Nwins = 5, p_val=0.25)
 
 # Display the gridworld so we know what we are working with
 display_gridworld(mdp.g, string.([(location(i, mdp.g.w, 1).x, location(i, mdp.g.w, 1).y) for i in 1:mdp.g.w*mdp.g.h]))
 savefig("adversarial_gridworld_results_world.pdf")
 
 # Sample Solving
-dpw_solver = DPWSolver(n_iterations=10000, depth=mdp.g.T, exploration_constant=1e3, k_state = .9, alpha_state = 0., check_repeat_state = false, estimate_value=myrollout, next_action = random_action, sample_ucb = true)
+dpw_solver = DPWSolver(n_iterations=5000, depth=mdp.g.T+1, exploration_constant=1e1, k_state = .9, alpha_state = 0., check_repeat_state = false, estimate_value=myrollout, next_action = random_action, sample_ucb = true)
 dpw_planner = solve(dpw_solver, mdp)
-action(dpw_planner, s0)
+action(dpw_planner, UInt[])
 num_leaves(dpw_planner.tree)
 maximum(dpw_planner.tree.q)
 failure_prob(1,dpw_planner.tree,mdp,10)
 V[to_index(s0, mdp.g.w)]
+dpw_planner.tree
 
 
 tree_sizes = Int.(floor.(10 .^ range(2, stop=4, length=5)))

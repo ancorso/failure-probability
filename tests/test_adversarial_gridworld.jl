@@ -6,8 +6,7 @@ using MCTS
 include("../adversarial_gridworld.jl")
 include("../failure_prob.jl")
 
-## Testing regular gridworld
-
+################# Testing regular gridworld ##########################
 # Test location(s, width)
 @test location(8, 4, 1) == GridWorldState(4,2,1)
 
@@ -75,10 +74,18 @@ p_poleval = display_gridworld(g, Veval_str, title = "Policy Eval on Optimal Poli
 plot(p_pol, p_V, p_poleval, size = (1000,1000))
 savefig("results.pdf")
 
+################# Testing seed adversarial gridworld ########################
+mdp, V, _ = create_sim(SeedGridWorld, s0 = GridWorldState(1,1,1), p_val = 0.25)
+@test discount(mdp) == 1
+s, r = generate_sr(mdp, Int[], 12, Random.GLOBAL_RNG)
+@test get_actual_state(mdp, [12]) == GridWorldState(2,1,2)
+@test s == [12]
+@test isterminal(mdp,s)
+@test r == 1e4 + 1
 
-## Testing adversarial gridworld
-mdp, V, _ = create_sim()
-@test discount(mdp) == 0.9
+################# Testing adversarial gridworld ########################
+mdp, V, _ = create_sim(AdversarialGridWorld)
+@test discount(mdp) == 1
 s, r = generate_sr(mdp, GridWorldState(1,1,29), :up, Random.GLOBAL_RNG)
 @test s == GridWorldState(1,2,30)
 @test isterminal(mdp,s)
@@ -92,7 +99,7 @@ s, r = generate_sr(mdp, GridWorldState(1,1,29), :right, Random.GLOBAL_RNG)
 
 w, h, N = 10, 10, 15
 wins = [(rand(1:w), rand(1:h)) for i in 1:N]
-mdp, V, _ = create_sim(win_states = wins, w=w, h=h, T=30)
+mdp, V, _ = create_sim(AdversarialGridWorld, win_states = wins, w=w, h=h, T=30)
 
 display_gridworld(mdp.g, string.([(location(i, mdp.g.w, 1).x, location(i, mdp.g.w, 1).y) for i in 1:mdp.g.w*mdp.g.h]))
 

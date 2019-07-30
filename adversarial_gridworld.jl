@@ -35,11 +35,11 @@ function is_terminal(s, g)
     true
 end
 
-function gw_generate_sr(g::GridWorld, s::GridWorldState, a::Int)
+function gw_generate_sr(g::GridWorld, s::GridWorldState, a::Int, rng::Random.AbstractRNG = Random.GLOBAL_RNG)
     si = to_index(s, g.w)
     sps = g.P[si, a]
     Ps = [nstate[2] for nstate in sps]
-    spi = findfirst(rand(Multinomial(1, Ps)) .== 1)
+    spi = findfirst(rand(rng, Multinomial(1, Ps)) .== 1)
     new_s = location(sps[spi][1], g.w, s.t+1)
     return new_s, g.reward(new_s)
 end
@@ -165,11 +165,15 @@ end
 
 
 
-
-
 mutable struct AdversarialGridWorld <: MDP{GridWorldState, Symbol}
     g::GridWorld
     π::Array
+end
+
+mutable struct SeedGridWorld <: MDP{Array{UInt}, UInt}
+    g::GridWorld
+    π::Array
+    s0::GridWorldState
 end
 
 function id(a)
@@ -185,32 +189,96 @@ function POMDPs.generate_sr(mdp::AdversarialGridWorld, s::GridWorldState, a::Sym
     return sp, r
 end
 
+get_actual_state(mdp::AdversarialGridWorld, s) = s
+function get_actual_state(mdp::SeedGridWorld, s::Array{UInt})
+    actual_state = mdp.s0
+    for i in s
+        actual_state, _ = gw_generate_sr(mdp.g, actual_state, mdp.π[to_index(actual_state, mdp.g.w)], MersenneTwister(i))
+    end
+    actual_state
+end
+
+function transition_probabilities(mdp, s)
+    w = 1
+    actual_state = mdp.s0
+    for i in s
+        next_state, _ = gw_generate_sr(mdp.g, actual_state, mdp.π[to_index(actual_state, mdp.g.w)], MersenneTwister(i))
+        w *= transition_prob(actual_state, next_state, mdp)
+        actual_state = next_state
+    end
+    w
+end
+
+function POMDPs.generate_sr(mdp::SeedGridWorld, s::Array{UInt}, a::UInt, rng::Random.AbstractRNG)
+    actual_state = get_actual_state(mdp, s)
+    next_state, _ = gw_generate_sr(mdp.g, actual_state, mdp.π[to_index(actual_state, mdp.g.w)], MersenneTwister(a))
+    [s..., a], ast_reward(actual_state, next_state, mdp)
+end
+
+function POMDPs.generate_sr(mdp::SeedGridWorld, s::GridWorldState, a::UInt, rng::Random.AbstractRNG)
+    sp, _ = gw_generate_sr(mdp.g, s, mdp.π[to_index(s, mdp.g.w)], MersenneTwister(a))
+    return sp, ast_reward(s, sp, mdp)
+end
+
 POMDPs.actions(mdp::AdversarialGridWorld) = [:right, :up, :left, :down]
 
 POMDPs.n_actions(mdp::AdversarialGridWorld) = 4
 
+random_action(mdp::SeedGridWorld, s::Array{UInt}, snode) = rand(UInt)
+random_action(mdp::SeedGridWorld, s::GridWorldState, snode) = rand(UInt)
+random_action(mdp::AdversarialGridWorld, s::GridWorldState, snode) = rand(actions(mdp))
+
 POMDPs.isterminal(mdp::AdversarialGridWorld, s::GridWorldState) = is_terminal(s, mdp.g)
 
-POMDPs.discount(mdp::AdversarialGridWorld) = 0.9
+POMDPs.isterminal(mdp::SeedGridWorld, s::Array{UInt}) = is_terminal(get_actual_state(mdp, s), mdp.g)
+POMDPs.isterminal(mdp::SeedGridWorld, s::GridWorldState) = is_terminal(s, mdp.g)
 
-transition_prob(s, sp, sim) = transition_prob(s, sim.π[to_index(s, sim.g.w)], sp, sim.g)
+POMDPs.discount(mdp::AdversarialGridWorld) = 1
+POMDPs.discount(mdp::SeedGridWorld) = 1
 
-in_E(s, sim) = sim.g.reward(s) == -1
+function myrollout(mdp, s, depth)
+    tot_r, mul = 0, discount(mdp)
+    while !isterminal(mdp, s)
+        sp, r = generate_sr(mdp, s, random_action(mdp, s, nothing), Random.GLOBAL_RNG)
+        tot_r += mul*r
+        mul *= discount(mdp)
+        s = sp
+    end
+    return tot_r
+end
+
+transition_prob(s, sp, mdp) = transition_prob(s, mdp.π[to_index(s, mdp.g.w)], sp, mdp.g)
+
+in_E(s, mdp) = mdp.g.reward(s) == -1
+
+function shortest_distance_to_error(sp, mdp)
+    error_states = findall([mdp.g.reward(location(s, mdp.g.w, 1)) for s in 1:nS(mdp.g)] .== -1)
+    min_dist = Inf
+    for e in error_states
+        loc = location(e, mdp.g.w, 1)
+        dist = sqrt((sp.x - loc.x)^2 + (sp.y - loc.y)^2)
+        if dist < min_dist
+            min_dist = dist
+        end
+    end
+    return min_dist
+end
 
 function ast_reward(s, sp, sim)
-    reward = 0#log(transition_prob(s, sp, sim))
+    reward = 1. / (1+shortest_distance_to_error(sp, sim))#log(transition_prob(s, sp, sim))
     if is_terminal(sp, sim.g) && !in_E(sp, sim)
-        dist = sqrt((sp.x - 2)^2 + (sp.y - 1)^2)
-        reward += -10000 - 1000*dist
+        reward += -10000
     end
     if is_terminal(sp, sim.g) && in_E(sp, sim)
-        println("found a win")
         reward += 10000
     end
     reward
 end
 
-function create_sim(; w=4, h=4, win_states = [(3,3)], lose_states = [(2,1)], T = 30)
+function create_sim(mdp_type; w=4, h=4, Nwins = 10, lose_states = [(2,1)], T = 30, p_val = 0.01, s0 = GridWorld(1,1,1))
+    win_states = [(rand(1:w), rand(1:h)) for i in 1:Nwins]
+    win_states = setdiff(win_states, [(s0.x, s0.y), lose_states...])
+
     # Define a reward function
     function reward_true(s)
         ((s.x, s.y) in win_states) && return 1
@@ -225,7 +293,7 @@ function create_sim(; w=4, h=4, win_states = [(3,3)], lose_states = [(2,1)], T =
     terminals = findall([reward_true(location(s, w, 1)) for s in 1:w*h] .!=  0)
 
     # Define a transition function
-    P = gen_P(w, h, terminals, [0.01, 0.01, 0.01, 0.01, 0])
+    P = gen_P(w, h, terminals, [p_val, p_val, p_val, p_val, 0])
 
     # Put it together in a gridworld
     g_true = GridWorld(w, h, reward_true, P, 1, T)
@@ -236,8 +304,14 @@ function create_sim(; w=4, h=4, win_states = [(3,3)], lose_states = [(2,1)], T =
     display_gridworld(g_true, policy_to_annotations(π0))
 
     # Get the exact probability of failure
-    V = policy_evaluation(g_fail, π0, tol=1e-15)
+    V = policy_evaluation(g_fail, π0, tol=1e-30)
 
-    AdversarialGridWorld(g_true, π0), V, g_fail
+    if mdp_type == AdversarialGridWorld
+        mdp = AdversarialGridWorld(g_true, π0)
+    elseif mdp_type == SeedGridWorld
+        @assert s0 != nothing
+        mdp = SeedGridWorld(g_true, π0, s0)
+    end
+    mdp, V, g_fail
 end
 
