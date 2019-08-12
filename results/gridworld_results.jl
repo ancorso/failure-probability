@@ -1,11 +1,12 @@
 using Plots
 using DataStructures
+using Serialization
 include("../adversarial_gridworld.jl")
 include("../failure_prob.jl")
 include("common.jl")
 
 ec = 1e3 # Exploration constant for MCTS
-samples_per_leaf = 10 # Samples per leaf for computing failure prob MCTs
+samples_per_leaf = 5 # Samples per leaf for computing failure prob MCTs
 trials_per_size = 10
 s0 = GridWorldState(6,6,1)
 
@@ -25,7 +26,7 @@ failure_prob(1,dpw_planner.tree,mdp,10)
 V[to_index(s0, mdp.g.w)]
 
 
-tree_sizes = Int.(floor.(10 .^ range(2, stop=4, length=5)))
+tree_sizes = Int.(floor.(10 .^ range(1, stop=5, length=10)))
 data = OrderedDict{String, OrderedDict{Int, Array{Trial}}}() # Maps method to a dictionary that maps tree size to several versions of results
 
 data
@@ -70,9 +71,13 @@ for ts in tree_sizes
 end
 
 ##### Plot the results
+cd("Workspace/failure-probability/")
+data = deserialize("gridworld_data.jls")
+minN = 1e3
+maxN = 2e5
 
 ## Show means with sample variance
-p1 = plot(minN:maxN, fill(V[to_index(s0, mdp.g.w)], Int(maxN - minN + 1)), title="Probability Estimates", xlabel="Rollout Budget", ylabel="Probability of Failure", label="Exact", xscale=:log10, yscale = :log10, legend=:bottomright)
+p1 = plot(minN:maxN, fill(V[to_index(s0, mdp.g.w)], Int(maxN - minN + 1)), title="Probability Estimates - Numerical Std", xlabel="Rollout Budget", ylabel="Probability of Failure", label="Exact", xscale=:log10, yscale = :log10, legend=:bottomright, xlims = (minN, maxN))
 
 # p2 = plot(title="Standard Deviation Estimates", xlabel="Rollout Budget", ylabel="Average error in Variance", legend=:bottomright)
 
@@ -93,20 +98,24 @@ for method in keys(data)
         actual_std = std(fps)
         push!(sample_std, actual_std)
 
-        # vars = []
-        # for t in trials
-        #     push!(vars, abs(log(actual_std) - log(sqrt(t.var_failure_prob))))
+        vars = []
+        for t in trials
+            push!(vars, sqrt(t.var_failure_prob))
+        end
         #     println(vars)
         # end
-        # push!(var_errors, mean(vars))
+        push!(var_errors, mean(vars))
     end
     means[findall(means .== 0)] .= NaN
     # var_errors[findall(var_errors .== 0)] .= NaN
-    plot!(p1, Ns, means, label=method, ribbon = (0, sample_std))
+    # plot!(p1, Ns, means, label=method, ribbon = (0, 2.576.*var_errors))
+    plot!(p1, Ns, means, label=method, ribbon = (0, 2.576.*sample_std))
     # plot!(p2, Ns, var_errors, label=method, xscale=:log10)
 end
 
-savefig(p1, "gridworld_results_mean.pdf")
+savefig(p1, "gridworld_results_mean_numerical_std.pdf")
 # savefig(p2, "gridworld_results_var.pdf")
 
+
+serialize("data.jls", data)
 

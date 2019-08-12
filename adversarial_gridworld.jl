@@ -189,7 +189,6 @@ function POMDPs.generate_sr(mdp::AdversarialGridWorld, s::GridWorldState, a::Sym
     return sp, r
 end
 
-get_actual_state(mdp::AdversarialGridWorld, s) = s
 function get_actual_state(mdp::SeedGridWorld, s::Array{UInt})
     actual_state = mdp.s0
     for i in s
@@ -228,6 +227,13 @@ random_action(mdp::SeedGridWorld, s::Array{UInt}, snode) = rand(UInt)
 random_action(mdp::SeedGridWorld, s::GridWorldState, snode) = rand(UInt)
 random_action(mdp::AdversarialGridWorld, s::GridWorldState, snode) = rand(actions(mdp))
 
+rollout_weight(mdp::SeedGridWorld, s, sp) = 1
+rollout_weight(mdp::AdversarialGridWorld, s, sp) = n_actions(mdp)*transition_prob(s, sp, mdp)
+
+tree_weight(mdp::SeedGridWorld, Nc, s, sp) = 1
+tree_weight(mdp::AdversarialGridWorld, Nc, s, sp) = Nc*transition_prob(s, sp, mdp)
+
+
 POMDPs.isterminal(mdp::AdversarialGridWorld, s::GridWorldState) = is_terminal(s, mdp.g)
 
 POMDPs.isterminal(mdp::SeedGridWorld, s::Array{UInt}) = is_terminal(get_actual_state(mdp, s), mdp.g)
@@ -236,16 +242,7 @@ POMDPs.isterminal(mdp::SeedGridWorld, s::GridWorldState) = is_terminal(s, mdp.g)
 POMDPs.discount(mdp::AdversarialGridWorld) = 1
 POMDPs.discount(mdp::SeedGridWorld) = 1
 
-function myrollout(mdp, s, depth)
-    tot_r, mul = 0, discount(mdp)
-    while !isterminal(mdp, s)
-        sp, r = generate_sr(mdp, s, random_action(mdp, s, nothing), Random.GLOBAL_RNG)
-        tot_r += mul*r
-        mul *= discount(mdp)
-        s = sp
-    end
-    return tot_r
-end
+
 
 transition_prob(s, sp, mdp) = transition_prob(s, mdp.π[to_index(s, mdp.g.w)], sp, mdp.g)
 
