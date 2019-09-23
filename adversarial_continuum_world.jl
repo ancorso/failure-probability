@@ -65,7 +65,7 @@ function move(w, s, a, d)
     Vec2([xpos, ypos])
 end
 
-function POMDPs.reward(w::CWorld, s::AbstractVector, a::AbstractVector, sp::Random.AbstractVector) # XXX inefficient
+function POMDPs.reward(w::CWorld, s::AbstractVector, a::AbstractVector, sp::AbstractVector) # XXX inefficient
     rew = 0.0
     for (i,r) in enumerate(w.reward_regions)
         if sp in r
@@ -277,34 +277,47 @@ POMDPs.value(p::CWorldPolicy, s::AbstractVector{Float64}) = maximum([evaluate(Q,
 
 ### Adversarial Continuum Worlds
 
-struct AdversarialCWorld <: MDP{Vec2, Vec2}
+struct AdversarialCWorld <: MDP{Array{Vec2}, Vec2}
     w::CWorld
     policy
     action_dist
 end
 
-function POMDPs.generate_sr(mdp::AdversarialCWorld, s::Vec2, a::Vec2, rng::Random.AbstractRNG)
-    cworld_action = action(mdp.policy, s)
-    sp = move(mdp.w, s, cworld_action, a)
-    return sp, ast_reward(s, sp, mdp)
+function POMDPs.generate_sr(mdp::AdversarialCWorld, s::Array{Vec2}, a::Vec2, rng::Random.AbstractRNG)
+    cworld_action = action(mdp.policy, s[end])
+    sp = move(mdp.w, s[end], cworld_action, a)
+    new_s = [s..., sp]
+    return new_s, ast_reward(new_s, mdp)
 end
 
-function action_taken(mdp::AdversarialCWorld, s::Vec2, sp::Vec2)
-    cworld_action = action(mdp.policy, s)
-    sp - (s + cworld_action) # Compute the disturbance
+function POMDPs.generate_sr(v::Nothing, mdp::AdversarialCWorld, s::Array{Vec2}, a::Vec2, rng::Random.AbstractRNG)
+    cworld_action = action(mdp.policy, s[end])
+    sp = move(mdp.w, s[end], cworld_action, a)
+    r2 = reward(mdp.w, s[end], a, sp) == -1
+    new_s = [s..., sp]
+    return new_s, ast_reward(new_s, mdp), r2
+end
+
+function action_taken(mdp::AdversarialCWorld, s::Array{Vec2}, sp::Array{Vec2})
+    cworld_action = action(mdp.policy, s[end])
+    sp[end] - (s[end] + cworld_action) # Compute the disturbance
 end
 
 imp_samp_weight(mdp::AdversarialCWorld, a::Vec2) = pdf(mdp.w.disturbance_dist, a) / pdf(mdp.action_dist, a)
 
-random_action(mdp::AdversarialCWorld, s::Vec2, snode) = Vec2(rand(mdp.action_dist))
+function random_action(mdp::AdversarialCWorld, s::Array{Vec2}, snode)
+    a = Vec2(rand(mdp.action_dist))
+    ρ = imp_samp_weight(mdp, a)
+    return a, ρ
+end
 
-rollout_weight(mdp::AdversarialCWorld, s::Vec2, sp::Vec2) = imp_samp_weight(mdp, action_taken(mdp, s, sp))
+rollout_weight(mdp::AdversarialCWorld, s::Array{Vec2}, sp::Array{Vec2}) = imp_samp_weight(mdp, action_taken(mdp, s, sp))
 
-tree_weight(mdp::AdversarialCWorld, Nc, s, sp) = imp_samp_weight(mdp, action_taken(mdp, s, sp))
+tree_weight(mdp::AdversarialCWorld, Nc, s::Array{Vec2}, sp::Array{Vec2}) = imp_samp_weight(mdp, action_taken(mdp, s, sp))
 
 POMDPs.discount(mdp::AdversarialCWorld) = 1
 
-POMDPs.isterminal(mdp::AdversarialCWorld, s::Vec2) = isterminal(mdp.w, s)
+POMDPs.isterminal(mdp::AdversarialCWorld, s::Array{Vec2}) = isterminal(mdp.w, s[end])
 
 in_E(s, mdp) = reward(mdp.w, Vec2(0., 0.), Vec2(0., 0.), s) == -1.
 
@@ -322,33 +335,46 @@ function shortest_distance_to_error(sp, mdp)
     return min_dist
 end
 
-function ast_reward(s, sp, sim)
-    reward = 1. / (1+shortest_distance_to_error(sp, sim))#log(transition_prob(s, sp, sim))
-    # reward = shortest_distance_to_error(s, sim) - shortest_distance_to_error(sp, sim)
-    if isterminal(sim.w, sp) && !in_E(sp, sim)
-        reward += -10000
+function ast_reward(s_traj, sim)
+    isterm = isterminal(sim, s_traj)
+    if  isterm && in_E(s_traj[end], sim)
+        return 1.
+    elseif isterm && !in_E(s_traj[end], sim)
+        min_distance = minimum([shortest_distance_to_error(s, sim) for s in s_traj]) / sqrt((sim.w.xlim[2] - sim.w.xlim[1])^2 + (sim.w.ylim[2] - sim.w.ylim[1])^2)
+        return exp(-min_distance)
+    else
+        return 0
     end
-    if isterminal(sim.w, sp) && in_E(sp, sim)
-        reward += 10000
-    end
-    reward
 end
 
 
-function create_sim(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500)
+
+    # reward = 1. / (1+shortest_distance_to_error(sp, sim))#log(transition_prob(s, sp, sim))
+    # # reward = shortest_distance_to_error(s, sim) - shortest_distance_to_error(sp, sim)
+    # if isterminal(sim.w, sp) && !in_E(sp, sim)
+    #     reward += -10000
+    # end
+    # if isterminal(sim.w, sp) && in_E(sp, sim)
+    #     reward += 10000
+    # end
+    # reward
+# end
+
+
+function create_sim(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max_itrs = 50)
     w = CWorld(disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
     w_fail = CWorld(rewards = [1, 1, 0, 0], disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
 
     # Solve for the optimal policy
     println("solving for optimal policy...")
     g = RectangleGrid(range(w.xlim[1], stop=w.xlim[2], length=30), range(w.ylim[1], stop=w.ylim[2], length=30))
-    sol = CWorldSolver(max_iters=20, m=20, grid=g)
+    sol = CWorldSolver(max_iters=50, m=20, grid=g)
     policy = solve(sol, w)
 
     # Evaluate that policy in great detail (to get prob of failure)
     println("Evaluating the probability of failure")
     g = RectangleGrid(range(w.xlim[1], stop=w.xlim[2], length=50), range(w.ylim[1], stop=w.ylim[2], length=50))
-    sol = CWorldSolver(max_iters=50, m=solver_m, grid=g)
+    sol = CWorldSolver(max_iters=max_itrs, m=solver_m, grid=g)
     V = policy_eval(sol, w_fail, policy)
 
     AdversarialCWorld(w,policy,MvNormal([0.,0.], [is_σ2 0.; 0. is_σ2])), V[end], w_fail
