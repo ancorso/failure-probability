@@ -287,7 +287,7 @@ function POMDPs.generate_sr(mdp::AdversarialCWorld, s::Array{Vec2}, a::Vec2, rng
     cworld_action = action(mdp.policy, s[end])
     sp = move(mdp.w, s[end], cworld_action, a)
     new_s = [s..., sp]
-    return new_s, ast_reward(new_s, mdp)
+    return new_s, heuristic_reward(new_s, mdp)
 end
 
 function POMDPs.generate_sr(v::Nothing, mdp::AdversarialCWorld, s::Array{Vec2}, a::Vec2, rng::Random.AbstractRNG)
@@ -295,7 +295,7 @@ function POMDPs.generate_sr(v::Nothing, mdp::AdversarialCWorld, s::Array{Vec2}, 
     sp = move(mdp.w, s[end], cworld_action, a)
     r2 = reward(mdp.w, s[end], a, sp) == -1
     new_s = [s..., sp]
-    return new_s, ast_reward(new_s, mdp), r2
+    return new_s, heuristic_reward(new_s, mdp), r2
 end
 
 function action_taken(mdp::AdversarialCWorld, s::Array{Vec2}, sp::Array{Vec2})
@@ -335,7 +335,7 @@ function shortest_distance_to_error(sp, mdp)
     return min_dist
 end
 
-function ast_reward(s_traj, sim)
+function heuristic_reward(s_traj, sim)
     isterm = isterminal(sim, s_traj)
     if  isterm && in_E(s_traj[end], sim)
         return 1.
@@ -361,7 +361,7 @@ end
 # end
 
 
-function create_sim(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max_itrs = 50)
+function create_adversarial_cworld(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max_itrs = 50)
     w = CWorld(disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
     w_fail = CWorld(rewards = [1, 1, 0, 0], disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
 

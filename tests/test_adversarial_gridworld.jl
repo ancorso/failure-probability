@@ -115,15 +115,6 @@ dpw_planner.tree
 
 @test !is_leaf(1, dpw_planner.tree)
 num_leaves(dpw_planner.tree)
-@test length(get_children(1, dpw_planner.tree)) == 4
-
-s = 1
-while !is_leaf(s, dpw_planner.tree)
-    global s = get_children(s, dpw_planner.tree)[1]
-end
-
-@test is_leaf(s, dpw_planner.tree)
-@test isempty(get_children(s, dpw_planner.tree))
 
 @test failure_rollout(GridWorldState(2,1,1), mdp, 10) == (1., 0.)
 failure_rollout(GridWorldState(3,3,1), mdp, 1000)
