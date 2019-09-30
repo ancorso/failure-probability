@@ -18,11 +18,14 @@ Base.in(v::Vec2, r::CircularRegion) = LinearAlgebra.norm(v-r.center) <= r.radius
 
 const card_and_stay = [Vec2(1.0, 0.0), Vec2(-1.0, 0.0), Vec2(0.0, 1.0), Vec2(0.0, -1.0), Vec2(0.0, 0.0)]
 const cardinal = [Vec2(1.0, 0.0), Vec2(-1.0, 0.0), Vec2(0.0, 1.0), Vec2(0.0, -1.0)]
-const default_regions = [CircularRegion(Vec2(3.5, 2.5), 0.5),
-                         CircularRegion(Vec2(3.5, 5.5), 0.5),
-                         CircularRegion(Vec2(8.5, 2.5), 0.5),
-                         CircularRegion(Vec2(7.5, 7.5), 0.5)]
-const default_rewards = [-1.0, -1.0, 1.0, 1.0]
+# const default_regions = [CircularRegion(Vec2(3.5, 2.5), 0.5),
+#                          CircularRegion(Vec2(3.5, 5.5), 0.5),
+#                          CircularRegion(Vec2(8.5, 2.5), 0.5),
+#                          CircularRegion(Vec2(7.5, 7.5), 0.5)]
+const default_regions = [CircularRegion(Vec2(2, 5), 0.5),
+                      CircularRegion(Vec2(8, 5), 0.5)] # This is the simple world
+# const default_rewards = [-1.0, -1.0, 1.0, 1.0]
+const default_rewards = [-1.0, 1.0] # For the simple world
 
 
 @with_kw struct CWorld <: MDP{Vec2, Vec2}
@@ -44,18 +47,24 @@ function POMDPs.generate_s(w::CWorld, s::AbstractVector, a::AbstractVector, rng:
     move(w, s, a, rand(rng, w.disturbance_dist))
 end
 
-function policy_rollout(w, s0, policy)
+function policy_rollout(w, s0, policy; return_states = false)
+    rollout_states = [s0]
     s = s0
     tot_r, mul = 0, discount(mdp)
     while !isterminal(w,s)
         a = action(policy, s)
         sp = generate_s(w, s, a, Random.GLOBAL_RNG)
+        push!(rollout_states, sp)
         r = reward(w, s, a, sp)
         tot_r += mul*r
         mul *= discount(mdp)
         s = sp
     end
-    return tot_r
+    if return_states
+        return tot_r, rollout_states
+    else
+        return tot_r
+    end
 end
 
 function move(w, s, a, d)
@@ -363,7 +372,9 @@ end
 
 function create_adversarial_cworld(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max_itrs = 50)
     w = CWorld(disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
-    w_fail = CWorld(rewards = [1, 1, 0, 0], disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
+    fail_rewards = zeros(size(default_rewards))
+    fail_rewards[default_rewards .== -1.] .= 1
+    w_fail = CWorld(rewards = fail_rewards, disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
 
     # Solve for the optimal policy
     println("solving for optimal policy...")

@@ -78,7 +78,7 @@ end
 
 # Constructs a planner for the provided mdp
 # Nstep is the number of iterations that MCTS is run each time action is called
-function get_planner(mdp, Nstep; exploration_constant = 0.2, sample_ucb = false, k_action = 1., alpha_action = .1)
+function get_planner(mdp, Nstep; exploration_constant = 0.2, sample_ucb = false, k_action = 1., alpha_action = .1, skip_terminal_branches = false)
     solver = DPWSolver(n_iterations=Nstep,
                        depth=100,
                        exploration_constant= exploration_constant,
@@ -91,7 +91,8 @@ function get_planner(mdp, Nstep; exploration_constant = 0.2, sample_ucb = false,
                        k_action = k_action,
                        alpha_action = alpha_action,
                        double_reward = true,
-                       keep_tree = true
+                       keep_tree = true,
+                       skip_terminal_branches = skip_terminal_branches
                        )
 
     solve(solver, mdp)

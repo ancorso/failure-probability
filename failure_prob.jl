@@ -29,7 +29,7 @@ function failure_prob(tree; s=1)
 end
 
 # Returns the failure probability averaging across a vector of sa nodes
-function failure_prob_sa_children(sa_children, tree)
+function failure_prob_sa_children(sa_children, tree, sa = nothing)
     # If it does have children, then we can compute the estimates of each of the children
     Nc = length(sa_children)
     E_fail, var_fail = Array{Float64}(undef, Nc), Array{Float64}(undef, Nc)
@@ -39,6 +39,10 @@ function failure_prob_sa_children(sa_children, tree)
         w = tree.ρ[c]
         E_fail[ci] =  w*efc
         var_fail[ci] = w*w*vfc
+    end
+    if sa != nothing
+        push!(E_fail, tree.fail_sample[sa])
+        push!(var_fail, 0)
     end
     E = mean(E_fail)
 
@@ -69,7 +73,7 @@ function failure_prob_sanode(sa, tree)
     end
 
     # Otherwise compute the average failure probability of the children
-    failure_prob_sa_children(sa_children, tree)
+    failure_prob_sa_children(sa_children, tree, sa)
 end
 
 
