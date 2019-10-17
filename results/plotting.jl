@@ -1,4 +1,4 @@
-using Plots
+using Plots; gr()
 
 function get_states_from_rollout(mdp, s0, actions)
     s = [s0]
@@ -51,19 +51,40 @@ function plot_tree(tree, mdp)
     scatter!(x,y, marker_z = V , markersize=2, markerstrokealpha=0, clims = (minimum(V), maximum(V)), label = "")
 end
 
+function plot_metric_comparisons(trials, labels, V_exact)
+    minpts, maxpts = extrema(hcat([t.pts for t in trials]...))
+    p1 = plot(range(minpts, stop=maxpts, length=1000), fill(V_exact, 1000), title = "Failure Probabilty Estimation", ylabel = "Failure Probability", xlabel = "Number of Samples", legend = :outertopright, yscale = :log10, xscale=:log10, label = "Exact")
+
+    p2 = plot([minpts], [0], label="", title = "Number of Failure Samples vs. Total Samples", ylabel = "Number of Failure Samples", xlabel = "Number of Samples", legend = :outertopright, xscale = :log10)
+
+    for t in 1:length(trials)
+        trial, label = trials[t], labels[t]
+        nonzero = trial.mean_arr .> 0.
+        y = trial.mean_arr[nonzero]
+        CI = 2.98*sqrt.(trial.var_arr[nonzero])
+
+        plot!(p1, trial.pts[nonzero], y, fillrange=y.+CI, fillalpha = 0.2, label = label)
+        plot!(p2, trial.pts, trial.num_failures, label = label)
+    end
+
+    plot(p1, p2, layout = (2,1), size = (800,600))
+end
+
 # Plot the resuls of a trial. for now it shows the growth of the tree,
 # as well as the accuracy of the prediction over time
 # V_exact is the reference value for the probability of failure
 function plot_trial(trial, V_exact, mdp, tree, s0)
     nonzero = trial.mean_arr .> 0.
-    p1 = plot(trial.pts[nonzero], trial.mean_arr[nonzero], yscale = :log, yerror = (0, 2.98*sqrt.(t.var_arr[nonzero])), label = "MCTS Estimate", ylabel = "Failure Probability", xlims = (0, trial.pts[end]), legend = :bottomleft)
+    y = trial.mean_arr[nonzero]
+    CI = 2.98*sqrt.(trial.var_arr[nonzero])
+    p1 = plot(trial.pts[nonzero], y, fillrange=y.+CI, fillalpha = 0.2, yscale=:log10, label = "MCTS Estimate", ylabel = "Failure Probability", xlims = (0, trial.pts[end]), legend = :bottomleft)
     plot!(trial.pts[nonzero], fill(V0, sum(nonzero)), label = "True Value")
 
 
-    p2 = plot(trial.pts, t.num_sanodes, label = "State-Action Nodes", legend = :topright, ylabel = "Number of Nodes")
-    plot!(trial.pts, t.num_snodes, label = "State Nodes")
+    p2 = plot(trial.pts, trial.num_sanodes, label = "State-Action Nodes", legend = :topright, ylabel = "Number of Nodes")
+    plot!(trial.pts, trial.num_snodes, label = "State Nodes")
 
-    p3 = plot(trial.pts, t.num_failures, label = "Num Failures", legend = :topright, ylabel = "")
+    p3 = plot(trial.pts, trial.num_failures, label = "Num Failures", legend = :topright, ylabel = "")
 
     p4 = plot(p1, p2, p3, layout = (3,1))
 

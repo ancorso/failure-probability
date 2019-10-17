@@ -43,27 +43,38 @@ POMDPs.actions(w::CWorld) = w.actions
 POMDPs.n_actions(w::CWorld) = length(w.actions)
 POMDPs.discount(w::CWorld) = w.discount
 
-function POMDPs.generate_s(w::CWorld, s::AbstractVector, a::AbstractVector, rng::Random.AbstractRNG)
-    move(w, s, a, rand(rng, w.disturbance_dist))
+function POMDPs.generate_s(w::CWorld, s::AbstractVector, a::AbstractVector, rng::Random.AbstractRNG; is_distribution = nothing, return_disturbance = false)
+    d = (is_distribution == nothing) ? rand(rng, w.disturbance_dist) : rand(rng, is_distribution)
+    sp = move(w, s, a, d)
+    if return_disturbance
+        return sp, d
+    else
+        return sp
+    end
 end
 
-function policy_rollout(w, s0, policy; return_states = false)
+function policy_rollout(w, s0, policy; return_states = false, is_distribution = nothing)
     rollout_states = [s0]
     s = s0
-    tot_r, mul = 0, discount(mdp)
+    tot_r, mul, weight = 0, discount(w), 1
     while !isterminal(w,s)
         a = action(policy, s)
-        sp = generate_s(w, s, a, Random.GLOBAL_RNG)
+        if is_distribution != nothing
+            sp, d = generate_s(w, s, a, Random.GLOBAL_RNG, is_distribution = is_distribution, return_disturbance = true)
+            weight *= pdf(w.disturbance_dist, d) / pdf(is_distribution, d)
+        else
+            sp = generate_s(w, s, a, Random.GLOBAL_RNG)
+        end
         push!(rollout_states, sp)
         r = reward(w, s, a, sp)
         tot_r += mul*r
-        mul *= discount(mdp)
+        mul *= discount(w)
         s = sp
     end
     if return_states
-        return tot_r, rollout_states
+        return tot_r, weight, rollout_states
     else
-        return tot_r
+        return tot_r, weight
     end
 end
 
@@ -307,22 +318,11 @@ function POMDPs.generate_sr(v::Nothing, mdp::AdversarialCWorld, s::Array{Vec2}, 
     return new_s, heuristic_reward(new_s, mdp), r2
 end
 
-function action_taken(mdp::AdversarialCWorld, s::Array{Vec2}, sp::Array{Vec2})
-    cworld_action = action(mdp.policy, s[end])
-    sp[end] - (s[end] + cworld_action) # Compute the disturbance
-end
-
-imp_samp_weight(mdp::AdversarialCWorld, a::Vec2) = pdf(mdp.w.disturbance_dist, a) / pdf(mdp.action_dist, a)
-
 function random_action(mdp::AdversarialCWorld, s::Array{Vec2}, snode)
     a = Vec2(rand(mdp.action_dist))
-    ρ = imp_samp_weight(mdp, a)
-    return a, ρ
+    ρ = pdf(mdp.w.disturbance_dist, a) / pdf(mdp.action_dist, a)
+    a, ρ
 end
-
-rollout_weight(mdp::AdversarialCWorld, s::Array{Vec2}, sp::Array{Vec2}) = imp_samp_weight(mdp, action_taken(mdp, s, sp))
-
-tree_weight(mdp::AdversarialCWorld, Nc, s::Array{Vec2}, sp::Array{Vec2}) = imp_samp_weight(mdp, action_taken(mdp, s, sp))
 
 POMDPs.discount(mdp::AdversarialCWorld) = 1
 
@@ -357,20 +357,7 @@ function heuristic_reward(s_traj, sim)
 end
 
 
-
-    # reward = 1. / (1+shortest_distance_to_error(sp, sim))#log(transition_prob(s, sp, sim))
-    # # reward = shortest_distance_to_error(s, sim) - shortest_distance_to_error(sp, sim)
-    # if isterminal(sim.w, sp) && !in_E(sp, sim)
-    #     reward += -10000
-    # end
-    # if isterminal(sim.w, sp) && in_E(sp, sim)
-    #     reward += 10000
-    # end
-    # reward
-# end
-
-
-function create_adversarial_cworld(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max_itrs = 50)
+function create_adversarial_cworld(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max_itrs = 50, s0 = Vec2(5,7))
     w = CWorld(disturbance_dist = MvNormal([0.,0.], [σ2 0.0; 0.0 σ2]))
     fail_rewards = zeros(size(default_rewards))
     fail_rewards[default_rewards .== -1.] .= 1
@@ -388,6 +375,6 @@ function create_adversarial_cworld(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max
     sol = CWorldSolver(max_iters=max_itrs, m=solver_m, grid=g)
     V = policy_eval(sol, w_fail, policy)
 
-    AdversarialCWorld(w,policy,MvNormal([0.,0.], [is_σ2 0.; 0. is_σ2])), V[end], w_fail
+    AdversarialCWorld(w,policy,MvNormal([0.,0.], [is_σ2 0.; 0. is_σ2])), AdversarialCWorld(w,policy,w_fail.disturbance_dist), V[end], w_fail
 end
 

@@ -2,7 +2,50 @@ using Test
 using Statistics
 using POMDPs
 using MCTS
-include("../failure_prob.jl")
+
+# Rollout function that tracks a "heuristic reward" for search and a "true reward"
+# for computing probability estimates
+function double_rollout(mdp, s, depth)
+    tot_hr, tot_tr, mul = 0, 0, discount(mdp)
+    actions = []
+    while !isterminal(mdp, s)
+        ract, ρ = random_action(mdp, s, nothing)
+        push!(actions, ract)
+        sp, hr, tr = generate_sr(nothing, mdp, s, ract, Random.GLOBAL_RNG)
+        tot_hr += mul*hr
+        tot_tr += mul*tr
+        mul *= discount(mdp)
+        s = sp
+    end
+    return tot_hr, tot_tr, actions
+end
+
+
+# Assumes the probability of failure is Beta distributed, updates estimates based
+# on effective number of samples. Returns mean and variance
+function fit_beta(samples, weights; prior = 0)
+    weights ./= sum(weights)
+
+    Neff = 1/sum(weights.^2)
+    pf = sum(samples .* weights)
+    positives = pf * Neff
+    negatives = Neff - positives
+
+    prior = pf
+    v = 0
+    for i=1:10
+        if pf == 0
+            pα, pβ = 0.5, 0.5
+        else
+            pα, pβ = prior, 1-prior
+        end
+
+        b = Beta(positives + pα, negatives + pβ)
+        prior, v = mean(b), var(b)
+    end
+    return prior, v
+    # mean(weights.*samples), var(weights .* samples) / Neff
+end
 
 # Structure for storing the results of an estimation trial
 mutable struct Trial
@@ -33,30 +76,27 @@ end
 #           Assumed to have keep_tree set to true
 #           Runs the planner for n_iterations number of steps in between data acquisition
 # Nmax: The maximum number of iterations
-function run_mcts_trial(planner, Nmax)
+function run_mcts_trial(planner, Nmax; failure_prob_fn = failure_prob)
     @assert planner.tree == nothing || planner.tree.s_lookup == nothing || length(planner.tree.s_lookup) == 0
 
     Nstep = planner.solver.n_iterations
     trial = Trial()
-    last_planner = deepcopy(planner)
-    last_E = 0
+    println("running MCTS trial to i=", Nmax, "....")
     for i in 1:Nstep:Nmax-Nstep
+        print("i=",i,"    ")
         action(planner, [s0])
-        E, Var = failure_prob(planner.tree)
 
-        if last_E != 0. && E == 0.
-            println("Went to 0 from nonzero!")
-            return last_planner, planner
-        end
-        last_planner = deepcopy(planner)
-        last_E = E
+        samples, weights = failure_prob_fn(planner.tree)
+        E,V = fit_beta(samples, weights)
+
         push!(trial.mean_arr, E)
-        push!(trial.var_arr, Var)
+        push!(trial.var_arr, V)
         push!(trial.num_sanodes, length(planner.tree.q))
         push!(trial.num_snodes, length(planner.tree.s_lookup))
         push!(trial.pts, i + Nstep - 1)
         push!(trial.num_failures, length(planner.tree.action_sequences))
     end
+    println("")
     trial, planner
 end
 
@@ -65,15 +105,23 @@ end
 # Nmax: This is the total number of iterations to run the trial for
 # Nstep: This is the interval between data acquisition
 function run_rollout_trial(rollout, Nmax, Nstep)
-    vals, trial = [], Trial()
+    println("running rollout trial to i=", Nmax, "....")
+    samples, weights, trial = Float64[], Float64[], Trial()
     for i = 1:Nstep:Nmax-Nstep
-        push!(vals, [rollout() for j=1:Nstep]...)
-        push!(trial.mean_arr, mean(vals))
-        push!(trial.var_arr, var(vals)/length(vals))
+        print("i=",i,"    ")
+        for j=1:Nstep
+            samp, w = rollout()
+            push!(samples, samp)
+            push!(weights, w)
+        end
+        E, V = fit_beta(samples, weights ./ length(weights))
+        push!(trial.mean_arr, E)
+        push!(trial.var_arr, V)
         push!(trial.pts, i + Nstep - 1)
-        push!(trial.num_failures, sum(vals))
+        push!(trial.num_failures, sum(samples .> 0))
     end
-    trial
+    println("")
+    trial, samples, weights
 end
 
 # Constructs a planner for the provided mdp
