@@ -57,14 +57,21 @@ function plot_metric_comparisons(trials, labels, V_exact)
 
     p2 = plot([minpts], [0], label="", title = "Number of Failure Samples vs. Total Samples", ylabel = "Number of Failure Samples", xlabel = "Number of Samples", legend = :outertopright, xscale = :log10)
 
+    colors = distinguishable_colors(length(trials)+1, colorant"white")[2:end]
     for t in 1:length(trials)
         trial, label = trials[t], labels[t]
         nonzero = trial.mean_arr .> 0.
         y = trial.mean_arr[nonzero]
-        CI = 2.98*sqrt.(trial.var_arr[nonzero])
+        v = trial.var_arr[nonzero]
 
-        plot!(p1, trial.pts[nonzero], y, fillrange=y.+CI, fillalpha = 0.2, label = label)
-        plot!(p2, trial.pts, trial.num_failures, label = label)
+        bounds = [get_upper_lower_bounds(get_counts_mode(y[i], v[i])..., 0.99) for i in 1:length(y)]
+
+        lb = [b[1] for b in bounds]
+        ub = [b[2] for b in bounds]
+
+        plot!(p1, trial.pts[nonzero], y, fillrange=ub, fillalpha = 0.2, label = label, color = colors[t])
+        plot!(p1, trial.pts[nonzero], y, fillrange=lb, fillalpha = 0.2, color = colors[t], label="")
+        plot!(p2, trial.pts, trial.num_failures, label = label, color = colors[t])
     end
 
     plot(p1, p2, layout = (2,1), size = (800,600))

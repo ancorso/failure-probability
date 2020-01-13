@@ -2,6 +2,7 @@ using Test
 using Statistics
 using POMDPs
 using MCTS
+using PolynomialRoots
 
 # Rollout function that tracks a "heuristic reward" for search and a "true reward"
 # for computing probability estimates
@@ -19,6 +20,29 @@ function double_rollout(mdp, s, depth)
     end
     return tot_hr, tot_tr, actions
 end
+
+function get_counts_mean(μ, σ2)
+    β = (μ*(1-μ)^2)/σ2 + μ - 1
+    α = β*μ/(1-μ)
+    return α, β
+end
+
+function get_counts_mode(μ, σ2)
+    r = roots([2*σ2+μ*(μ-1), 5*σ2-(1-2*μ + 2*μ^2), 4*σ2 + μ*(μ -1), σ2])
+    z = maximum(real.(r[(abs.(imag.(r)) .<= 1e-12) .& (real.(r) .> 0.)]))
+    β = (1-μ)*z + μ
+    ϵ = μ*(β-1) / (1-μ)
+    α = 1+ ϵ
+    return α, β
+end
+
+function get_upper_lower_bounds(a,b, ci = 0.9)
+    ϵ = (1-ci) / 2
+    d = Beta(a,b)
+    return quantile(d, ϵ), quantile(d, 1-ϵ)
+end
+
+
 
 
 # Assumes the probability of failure is Beta distributed, updates estimates based
@@ -76,28 +100,31 @@ end
 #           Assumed to have keep_tree set to true
 #           Runs the planner for n_iterations number of steps in between data acquisition
 # Nmax: The maximum number of iterations
-function run_mcts_trial(planner, Nmax; failure_prob_fn = failure_prob)
+function run_mcts_trial(planner, Nmax; failure_prob_fns = [failure_prob])
     @assert planner.tree == nothing || planner.tree.s_lookup == nothing || length(planner.tree.s_lookup) == 0
 
     Nstep = planner.solver.n_iterations
-    trial = Trial()
+    trials = [Trial() for t in 1:length(failure_prob_fns)]
     println("running MCTS trial to i=", Nmax, "....")
     for i in 1:Nstep:Nmax-Nstep
         print("i=",i,"    ")
         action(planner, [s0])
 
-        samples, weights = failure_prob_fn(planner.tree)
-        E,V = fit_beta(samples, weights)
+        for f in 1:length(failure_prob_fns)
+            trial = trials[f]
+            E, V = failure_prob_fns[f](planner.tree)
+            # E,V = fit_beta(samples, weights)
 
-        push!(trial.mean_arr, E)
-        push!(trial.var_arr, V)
-        push!(trial.num_sanodes, length(planner.tree.q))
-        push!(trial.num_snodes, length(planner.tree.s_lookup))
-        push!(trial.pts, i + Nstep - 1)
-        push!(trial.num_failures, length(planner.tree.action_sequences))
+            push!(trial.mean_arr, E)
+            push!(trial.var_arr, V)
+            push!(trial.num_sanodes, length(planner.tree.q))
+            push!(trial.num_snodes, length(planner.tree.s_lookup))
+            push!(trial.pts, i + Nstep - 1)
+            push!(trial.num_failures, length(planner.tree.action_sequences))
+        end
     end
     println("")
-    trial, planner
+    trials, planner
 end
 
 # Runs a Monte Carlo style rollout to get a mean and variance
@@ -114,7 +141,8 @@ function run_rollout_trial(rollout, Nmax, Nstep)
             push!(samples, samp)
             push!(weights, w)
         end
-        E, V = fit_beta(samples, weights ./ length(weights))
+        # E, V = fit_beta(samples, weights ./ length(weights))
+        E,V = mean(samples), var(samples) / length(samples)
         push!(trial.mean_arr, E)
         push!(trial.var_arr, V)
         push!(trial.pts, i + Nstep - 1)
