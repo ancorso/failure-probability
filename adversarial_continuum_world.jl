@@ -365,13 +365,13 @@ function create_adversarial_cworld(;σ2 = 0.5, is_σ2 = 1.0, solver_m = 500, max
 
     # Solve for the optimal policy
     println("solving for optimal policy...")
-    g = RectangleGrid(range(w.xlim[1], stop=w.xlim[2], length=30), range(w.ylim[1], stop=w.ylim[2], length=30))
-    sol = CWorldSolver(max_iters=50, m=20, grid=g)
+    g = RectangleGrid(range(w.xlim[1], stop=w.xlim[2], length=20), range(w.ylim[1], stop=w.ylim[2], length=20))
+    sol = CWorldSolver(max_iters=10, m=10, grid=g)
     policy = solve(sol, w)
 
     # Evaluate that policy in great detail (to get prob of failure)
     println("Evaluating the probability of failure")
-    g = RectangleGrid(range(w.xlim[1], stop=w.xlim[2], length=50), range(w.ylim[1], stop=w.ylim[2], length=50))
+    g = RectangleGrid(range(w.xlim[1], stop=w.xlim[2], length=20), range(w.ylim[1], stop=w.ylim[2], length=20))
     sol = CWorldSolver(max_iters=max_itrs, m=solver_m, grid=g)
     V = policy_eval(sol, w_fail, policy)
 

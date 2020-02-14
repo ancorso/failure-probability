@@ -2,7 +2,7 @@ using Test
 using Statistics
 using POMDPs
 using MCTS
-using PolynomialRoots
+# using PolynomialRoots
 
 # Rollout function that tracks a "heuristic reward" for search and a "true reward"
 # for computing probability estimates
